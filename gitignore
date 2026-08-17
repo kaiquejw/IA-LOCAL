@@ -1,0 +1,8 @@
+dados/
+.etapas/
+PRONTO
+.modelo_base
+.modelo_secundario
+backups/
+*.tar.gz
+resultados-*.txt

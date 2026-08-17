@@ -1,0 +1,17 @@
+# Conjunto fixo de avaliação. Use SEMPRE os mesmos para comparar configurações.
+# Uma linha = um prompt.
+Explique a diferença entre Future e Stream em Dart, e quando escolher cada um.
+Escreva uma função Dart que faz retry com backoff exponencial numa chamada HTTP, com tratamento de erro completo.
+Qual a diferença entre IAM Role e IAM Policy na AWS? Explique como se eu fosse júnior.
+Explique o que é SSRF, o mecanismo da falha, e as duas contramedidas principais.
+Esse comando está correto? nmap -sV --script vuln -p- 10.0.0.5
+O que significa o erro Docker: "could not select device driver with capabilities gpu"?
+Explique o que é um KV cache num LLM e por que ele consome VRAM.
+Qual a diferença entre security group e NACL na AWS?
+Revise: func get(u string) string { r, _ := http.Get(u); b, _ := io.ReadAll(r.Body); return string(b) }
+Explique o que faz: docker run --rm -v $(pwd):/data alpine sh -c 'cd /data && rm -rf *'
+Qual a diferença entre autenticação e autorização? Dê um exemplo de falha de cada.
+Como funciona o handshake TLS 1.3, em passos?
+Explique o que é prompt injection e por que RAG não resolve o problema.
+Qual a diferença entre fine-tuning e RAG? Quando cada um é a ferramenta certa.
+Existe uma flag --deep-scan no nmap?

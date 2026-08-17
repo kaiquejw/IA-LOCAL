@@ -1,0 +1,49 @@
+# Stack de IA local — Ollama + Open WebUI
+# Portas presas em 127.0.0.1: acesso APENAS via túnel SSH.
+# NUNCA mude para 0.0.0.0 sem colocar autenticação e TLS na frente.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ./dados/ollama:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      # Mantém o modelo na VRAM. Sem isso ele descarrega em 5 min
+      # e você espera 40s a cada pergunta — dinheiro queimado.
+      - OLLAMA_KEEP_ALIVE=-1
+      # Menos VRAM e mais velocidade.
+      - OLLAMA_FLASH_ATTENTION=1
+      # Quantiza o KV cache: libera ~metade da memória de contexto.
+      - OLLAMA_KV_CACHE_TYPE=q8_0
+      # Dois modelos vivos ao mesmo tempo (comparação lado a lado).
+      - OLLAMA_MAX_LOADED_MODELS=2
+      # Duas requisições em paralelo (você + seu amigo).
+      - OLLAMA_NUM_PARALLEL=2
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: webui
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    volumes:
+      - ./dados/webui:/app/backend/data
+    ports:
+      - "127.0.0.1:3000:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_AUTH=True
+      - ENABLE_SIGNUP=True
+      # RAG: quantos trechos recuperar por pergunta
+      - RAG_TOP_K=5
