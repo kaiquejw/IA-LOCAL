@@ -1,0 +1,5 @@
+(
+  echo * text=auto eol=lf
+  echo *.sh text eol=lf
+  echo *.Modelfile text eol=lf
+) > .gitattributes
