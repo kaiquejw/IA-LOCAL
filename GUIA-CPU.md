@@ -233,8 +233,10 @@ Confirme que a lista de Compute ficou vazia.
 
 # CHECKLIST DO ENSAIO
 
-- [ ] `bootstrap-cpu.sh` e `docker-compose.cpu.yml` no GitHub, com `i/lf`
-- [ ] VPS de CPU criada com Ubuntu 24.04
+- [x] `bootstrap-cpu.sh` e `docker-compose.cpu.yml` no GitHub, com `i/lf`
+- [ ] VPS de CPU criada com Ubuntu 24.04 — **não precisa de GPU**, é uma
+      instância comum de 2 vCPU / 8 GB. Está sempre disponível, ao contrário
+      das frações de A40.
 - [ ] `bootstrap-cpu.sh` rodou até o fim sem erro
 - [ ] Correções (se houve) aplicadas no repositório e com push feito
 - [ ] Open WebUI acessível e respondendo
@@ -256,8 +258,13 @@ Só isto:
 |---|---|---|
 | Script | `bootstrap-cpu.sh` | `bootstrap.sh` |
 | Compose | `docker-compose.cpu.yml` | `docker-compose.yml` |
-| Modelo | 3B | 27B ou 32B |
-| `num_ctx` | 4096 | 32768 |
+| Modelo | 3B, fixo na lista | escolhido pela VRAM detectada (8B a 32B) |
+| `num_ctx` | 4096 | 8192 a 32768, conforme a VRAM |
 | Etapa extra | — | driver NVIDIA + container toolkit |
 
 Nada mais. É por isso que o ensaio vale.
+
+A tabela completa de modelo por VRAM está no [GUIA.md](GUIA.md), Passo 2.1.
+Vale conhecer antes: como as frações de 24 GB vivem esgotadas, é bem provável
+que a sua primeira instância seja de **12 GB** — e aí o modelo é um `qwen3:14b`,
+não um 32B.

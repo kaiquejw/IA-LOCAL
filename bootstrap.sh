@@ -77,6 +77,53 @@ fi
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
 # ============================================================
+# ESCOLHA DO MODELO PELA VRAM
+# ============================================================
+# A fração de A40 que você consegue no dia varia (12 / 24 / 48 GB).
+# Modelo grande demais não dá erro: o Ollama joga o excedente na CPU e a
+# resposta despenca de dezenas para poucos tokens/s. Por isso o script mede
+# a VRAM e escolhe — em vez de confiar que você lembrou de editar a lista.
+#
+# Tamanhos conferidos no registry (Q4_K_M, o padrão):
+#   qwen3:32b 20,2 GB | qwen2.5:32b 19,9 GB | gemma3:27b 17,4 GB
+#   qwen3:14b  9,3 GB | qwen2.5-coder:14b 9,0 GB | gemma3:12b 8,1 GB
+#   qwen3:8b   5,2 GB
+# Some a isso o KV cache: ~2 GB num 32B com num_ctx 16384 (já quantizado a
+# q8_0 pelo compose). Daí as margens abaixo.
+#
+# Para forçar outra escolha:  MODELO=gemma3:27b NUM_CTX=8192 ./bootstrap.sh
+VRAM_MB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1 | tr -d ' ')"
+[[ "$VRAM_MB" =~ ^[0-9]+$ ]] || VRAM_MB=0
+log "VRAM detectada: ${VRAM_MB} MiB"
+
+if   (( VRAM_MB >= 44000 )); then           # A40 inteira (48 GB)
+  CANDIDATOS_PRINCIPAL=( "qwen3:32b" "qwen2.5:32b" )
+  CANDIDATOS_SECUNDARIO=( "gemma3:27b" )
+  NUM_CTX_PADRAO=32768
+elif (( VRAM_MB >= 22000 )); then           # fração de 24 GB
+  # gemma3:27b na frente de propósito: usa sliding window attention, então
+  # o KV cache dele é uma fração do de um 32B — sobra folga pro contexto.
+  CANDIDATOS_PRINCIPAL=( "gemma3:27b" "qwen3:14b" )
+  CANDIDATOS_SECUNDARIO=( "qwen2.5-coder:14b" )
+  NUM_CTX_PADRAO=16384
+elif (( VRAM_MB >= 11000 )); then           # fração de 12 GB
+  CANDIDATOS_PRINCIPAL=( "qwen3:14b" "gemma3:12b" )
+  CANDIDATOS_SECUNDARIO=()                  # 2 modelos não cabem em 12 GB
+  NUM_CTX_PADRAO=8192
+else                                        # 8 GB ou menos
+  CANDIDATOS_PRINCIPAL=( "qwen3:8b" "gemma3:4b" )
+  CANDIDATOS_SECUNDARIO=()
+  NUM_CTX_PADRAO=8192
+fi
+
+# override manual ganha da detecção
+if [[ -n "${MODELO:-}" ]]; then
+  CANDIDATOS_PRINCIPAL=( "$MODELO" )
+fi
+NUM_CTX="${NUM_CTX:-$NUM_CTX_PADRAO}"
+log "candidatos: ${CANDIDATOS_PRINCIPAL[*]} — num_ctx ${NUM_CTX}"
+
+# ============================================================
 # ETAPA 3 — Docker + NVIDIA Container Toolkit
 # ============================================================
 if ! feito docker; then
@@ -129,22 +176,9 @@ done
 if ! feito modelos; then
   log "ETAPA 5/5 — baixando modelos (demora, é o passo mais longo)"
 
-  # Tenta os candidatos em ordem. Nomes de tag mudam entre lançamentos,
-  # então usa o primeiro que existir de fato no registry.
-  # CONFIRA os nomes atuais em https://ollama.com/library antes de subir a GPU.
-  #
-  # A ordem prefere o quantizado padrão (Q4_K_M, ~20 GB num 32B): cabe tanto
-  # na fração de 24 GB quanto na de 48 GB. Tag "-q8_0" dobra o tamanho e só
-  # faz sentido na de 48 GB — se for usar, coloque na frente da lista.
-  CANDIDATOS_PRINCIPAL=(
-    "qwen3:32b"
-    "qwen2.5:32b"
-  )
-  CANDIDATOS_SECUNDARIO=(
-    "gemma3:27b"
-    "qwen2.5-coder:14b"
-  )
-
+  # As listas vieram da detecção de VRAM lá em cima. Tenta em ordem e fica
+  # com o primeiro que existir de fato no registry — nome de tag muda entre
+  # lançamentos. Confira em https://ollama.com/library se todos falharem.
   BASE_PRINCIPAL=""
   for m in "${CANDIDATOS_PRINCIPAL[@]}"; do
     log "tentando baixar: $m"
@@ -163,12 +197,16 @@ if ! feito modelos; then
   fi
   echo "$BASE_PRINCIPAL" > "${DIR}/.modelo_base"
 
-  for m in "${CANDIDATOS_SECUNDARIO[@]}"; do
-    if docker exec ollama ollama pull "$m"; then
-      echo "$m" > "${DIR}/.modelo_secundario"
-      break
-    fi
-  done
+  # Em VRAM pequena a lista vem vazia de propósito: um segundo modelo só
+  # serviria para ficar sendo carregado e descarregado.
+  if (( ${#CANDIDATOS_SECUNDARIO[@]} > 0 )); then
+    for m in "${CANDIDATOS_SECUNDARIO[@]}"; do
+      if docker exec ollama ollama pull "$m"; then
+        echo "$m" > "${DIR}/.modelo_secundario"
+        break
+      fi
+    done
+  fi
 
   marca modelos
 else
@@ -184,9 +222,11 @@ BASE_PRINCIPAL="$(cat "${DIR}/.modelo_base")"
 for f in "${DIR}"/modelfiles/*.Modelfile; do
   [[ -e "$f" ]] || continue
   nome="$(basename "$f" .Modelfile)"
-  # substitui o placeholder pelo modelo base que realmente existe
-  sed "s|__MODELO_BASE__|${BASE_PRINCIPAL}|g" "$f" \
-    > "${DIR}/dados/ollama/modelfiles/${nome}.Modelfile"
+  # 1) troca o placeholder pelo modelo base que realmente existe
+  # 2) ajusta o num_ctx ao que cabe nesta VRAM (a cópia, não o repositório)
+  sed -e "s|__MODELO_BASE__|${BASE_PRINCIPAL}|g" \
+      -e "s|^PARAMETER num_ctx .*|PARAMETER num_ctx ${NUM_CTX}|" \
+      "$f" > "${DIR}/dados/ollama/modelfiles/${nome}.Modelfile"
 
   if docker exec ollama ollama create "$nome" \
        -f "/root/.ollama/modelfiles/${nome}.Modelfile"; then
@@ -204,7 +244,8 @@ touch "${DIR}/PRONTO"
 log "================================================"
 log " BOOTSTRAP CONCLUÍDO"
 log ""
-log " Modelo base : ${BASE_PRINCIPAL}"
+log " VRAM        : ${VRAM_MB} MiB"
+log " Modelo base : ${BASE_PRINCIPAL}   (num_ctx ${NUM_CTX})"
 log " Customizados:"
 docker exec ollama ollama list || true
 log ""

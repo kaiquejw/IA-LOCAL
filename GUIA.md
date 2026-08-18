@@ -148,9 +148,22 @@ Guarde essa URL — ela vai ser usada no próximo passo.
 1. Painel Vultr → botão **Deploy** (canto superior direito) → **Deploy New Server**
 2. **Choose Type:** clique em **Cloud GPU**
 3. **Location:** `Miami`
-4. **GPU Type / Plan:** selecione uma opção de **A40**
-   - Comece pela fração de **24 GB** para esta fase de testes
-   - A **48 GB** você usa depois, quando tudo estiver validado
+4. **GPU Type / Plan:** selecione **qualquer** fração de **A40** que estiver
+   disponível. Não fique esperando a de 24 GB liberar — o `bootstrap.sh` mede a
+   VRAM e escolhe o modelo sozinho:
+
+   | VRAM | Modelo principal | `num_ctx` | Segundo modelo |
+   |---|---|---|---|
+   | 48 GB | `qwen3:32b` (20,2 GB) | 32768 | `gemma3:27b` |
+   | 24 GB | `gemma3:27b` (17,4 GB) | 16384 | `qwen2.5-coder:14b` |
+   | 12 GB | `qwen3:14b` (9,3 GB) | 8192 | nenhum |
+   | 8 GB | `qwen3:8b` (5,2 GB) | 8192 | nenhum |
+
+   Em 24 GB o `gemma3:27b` vem na frente de um 32B de propósito: ele usa
+   *sliding window attention*, então o KV cache custa uma fração — sobra folga
+   para contexto em vez de o modelo transbordar para a CPU.
+
+   Para forçar outra escolha: `MODELO=qwen3:32b NUM_CTX=8192 ./bootstrap.sh`
 5. **Image / Operating System:** `Ubuntu 24.04 LTS x64`
 6. Role para baixo até **Additional Features**:
    - ❌ **Auto Backups** — desmarque (cobra e é inútil aqui)
@@ -434,10 +447,10 @@ Startup Scripts não atravessam contas — é por isso que a configuração vive
 |---|---|---|
 | `nvidia-smi: command not found` | Driver não instalou | `./bootstrap.sh` de novo; se persistir, `reboot` |
 | `could not select device driver ... gpu` | Container toolkit não configurado | `nvidia-ctk runtime configure --runtime=docker && systemctl restart docker` |
-| `ollama ps` mostra % em CPU | Modelo não caiu na VRAM | Reduza `num_ctx` no Modelfile, ou use Q4 |
+| `ollama ps` mostra % em CPU | Modelo não caiu na VRAM | `NUM_CTX=4096 ./bootstrap.sh`, ou `MODELO=` menor |
 | Resposta lenta na 1ª pergunta | Modelo carregando | Confirme `OLLAMA_KEEP_ALIVE=-1` no compose |
 | `localhost:3000` não abre | Túnel caiu | Reabra o `ssh -N -L ...` |
-| Modelo trunca meu código longo | `num_ctx` insuficiente | Aumente no Modelfile e recrie: `ollama create tutor -f ...` |
+| Modelo trunca meu código longo | `num_ctx` insuficiente | `NUM_CTX=16384 ./bootstrap.sh` e confira `ollama ps` depois |
 | Código sai com sintaxe estranha | `repeat_penalty` alto | Mantenha ≤ 1.10 |
 | Modelo inventou comando/CVE | Comportamento esperado do tamanho | Confirme no `man`. Use RAG para fatos. |
 
@@ -460,6 +473,8 @@ Depois é só `ssh -N gpu`.
 # EXPECTATIVA HONESTA
 
 O modelo que você vai rodar é bom, e vai ajudar muito. Mas não é um modelo de fronteira, e nenhuma calibração muda isso — o gap está nos pesos, não na configuração.
+
+E o tamanho depende da fração que você conseguir. Num plano de **12 GB** você roda um 14B, não um 32B: a diferença aparece principalmente em raciocínio de vários passos e em código longo. Explicação de conceito e leitura de código continuam bem servidas. Se a instância de 12 GB é a que está disponível, ela vale muito mais que a de 24 GB que você não conseguiu criar.
 
 **Ele vai ser excelente em:** explicar conceito, ler e explicar código, analisar output de ferramenta, rubber duck, responder em cima do seu RAG.
 
