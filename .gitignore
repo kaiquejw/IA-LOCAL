@@ -3,6 +3,7 @@ dados/
 PRONTO
 .modelo_base
 .modelo_secundario
+.modelo_base_cpu
 backups/
 *.tar.gz
 resultados-*.txt

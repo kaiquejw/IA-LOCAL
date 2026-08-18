@@ -4,6 +4,11 @@ Siga na ordem. Cada passo diz **onde ir** e **o que colar**.
 
 Leia a Fase 0 antes de gastar um centavo.
 
+> **Antes da Fase 2, faça o ensaio em CPU:** [GUIA-CPU.md](GUIA-CPU.md).
+> Valida 11 dos 13 itens desta stack por ~US$0,30, em vez de depurar com o
+> medidor da GPU rodando. Depois volte para cá — só o driver NVIDIA fica
+> como território novo.
+
 ---
 
 # FASE 0 — proteção contra fatura surpresa
@@ -65,16 +70,20 @@ No painel da Vultr:
 Baixe os arquivos deste pacote e coloque numa pasta assim:
 
 ```
-ia-local-stack/
+IA-LOCAL/
 ├── GUIA.md
+├── GUIA-CPU.md
 ├── README.md
 ├── bootstrap.sh
+├── bootstrap-cpu.sh
 ├── docker-compose.yml
+├── docker-compose.cpu.yml
 ├── ia-sync.sh
 ├── bench.sh
 ├── prompts-teste.txt
 ├── log.md
 ├── .gitignore
+├── .gitattributes
 └── modelfiles/
     ├── tutor.Modelfile
     └── coder.Modelfile
@@ -96,7 +105,7 @@ O primeiro checa sintaxe do script. O segundo valida o YAML (funciona mesmo sem 
 ### Passo 1.3 — criar o repositório
 
 1. Acesse **github.com** → botão **+** no topo direito → **New repository**
-2. Nome: `ia-local-stack`
+2. Nome: `IA-LOCAL`
 3. Visibilidade: **Public**
 4. **Não** marque "Add a README file"
 5. **Create repository**
@@ -114,15 +123,15 @@ git init
 git add .
 git commit -m "stack inicial de IA local"
 git branch -M main
-git remote add origin https://github.com/SEU_USUARIO/ia-local-stack.git
+git remote add origin https://github.com/kaiquejw/IA-LOCAL.git
 git push -u origin main
 ```
 
-Troque `SEU_USUARIO` pelo seu usuário do GitHub.
+A URL acima já é a deste repositório. Se você for usar outra conta, troque o usuário.
 
 ### Passo 1.5 — confirmar
 
-Abra `https://github.com/SEU_USUARIO/ia-local-stack` no navegador. Os arquivos devem estar lá.
+Abra `https://github.com/kaiquejw/IA-LOCAL` no navegador. Os arquivos devem estar lá.
 
 Guarde essa URL — ela vai ser usada no próximo passo.
 
@@ -168,7 +177,7 @@ Se aparecer pergunta sobre fingerprint, digite `yes`.
 Já conectado na VPS:
 
 ```bash
-git clone https://github.com/SEU_USUARIO/ia-local-stack.git /opt/ia
+git clone https://github.com/kaiquejw/IA-LOCAL.git /opt/ia
 cd /opt/ia
 chmod +x bootstrap.sh
 ./bootstrap.sh
@@ -276,7 +285,7 @@ Se você editou via Remote-SSH direto na VPS, copie os trechos alterados para os
 ```bash
 #!/bin/bash
 if [ ! -d /opt/ia ]; then
-  git clone https://github.com/SEU_USUARIO/ia-local-stack.git /opt/ia
+  git clone https://github.com/kaiquejw/IA-LOCAL.git /opt/ia
 fi
 cd /opt/ia
 chmod +x bootstrap.sh

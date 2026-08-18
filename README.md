@@ -1,4 +1,4 @@
-# ia-local-stack
+# IA-LOCAL
 
 Stack reproduzível de IA local em GPU efêmera na nuvem.
 Sobe do zero em uma instância limpa, sem intervenção manual.
@@ -12,7 +12,7 @@ Startup Script da instância (Vultr / RunPod / qualquer Ubuntu 24.04 com GPU):
 ```bash
 #!/bin/bash
 if [ ! -d /opt/ia ]; then
-  git clone https://github.com/SEU_USUARIO/ia-local-stack.git /opt/ia
+  git clone https://github.com/kaiquejw/IA-LOCAL.git /opt/ia
 fi
 cd /opt/ia && chmod +x bootstrap.sh && ./bootstrap.sh
 ```
@@ -29,8 +29,11 @@ ssh -N -L 3000:localhost:3000 -L 11434:localhost:11434 root@IP
 | Arquivo | O que faz |
 |---|---|
 | `GUIA.md` | **Comece aqui.** Passo a passo completo. |
+| `GUIA-CPU.md` | Ensaio em VPS de CPU antes de gastar GPU. |
 | `bootstrap.sh` | Provisiona tudo. Idempotente, retoma se reiniciar. |
+| `bootstrap-cpu.sh` | Mesma sequência sem a etapa do driver NVIDIA. |
 | `docker-compose.yml` | Ollama + Open WebUI. Portas presas em 127.0.0.1. |
+| `docker-compose.cpu.yml` | Mesma stack sem o passthrough de GPU. |
 | `modelfiles/tutor.Modelfile` | Modelo principal de estudo. |
 | `modelfiles/coder.Modelfile` | Foco em código. |
 | `ia-sync.sh` | Backup/restore do histórico entre instâncias. |

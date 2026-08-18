@@ -131,15 +131,18 @@ if ! feito modelos; then
 
   # Tenta os candidatos em ordem. Nomes de tag mudam entre lançamentos,
   # então usa o primeiro que existir de fato no registry.
+  # CONFIRA os nomes atuais em https://ollama.com/library antes de subir a GPU.
+  #
+  # A ordem prefere o quantizado padrão (Q4_K_M, ~20 GB num 32B): cabe tanto
+  # na fração de 24 GB quanto na de 48 GB. Tag "-q8_0" dobra o tamanho e só
+  # faz sentido na de 48 GB — se for usar, coloque na frente da lista.
   CANDIDATOS_PRINCIPAL=(
-    "qwen3.6:27b-q8_0"
-    "qwen3.6:27b"
-    "qwen3:32b-q8_0"
     "qwen3:32b"
+    "qwen2.5:32b"
   )
   CANDIDATOS_SECUNDARIO=(
-    "gemma4:31b"
     "gemma3:27b"
+    "qwen2.5-coder:14b"
   )
 
   BASE_PRINCIPAL=""

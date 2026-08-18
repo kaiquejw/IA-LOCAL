@@ -1,0 +1,48 @@
+# Stack de IA local — variante de ENSAIO, sem GPU.
+#
+# Estrutura idêntica ao docker-compose.yml de produção. As únicas diferenças
+# estão comentadas com [CPU]. Validar este arquivo valida quase todo o outro.
+#
+# Portas presas em 127.0.0.1: acesso APENAS via túnel SSH.
+# NUNCA mude para 0.0.0.0 sem colocar autenticação e TLS na frente.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ./dados/ollama:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      # Mantém o modelo carregado. Sem isso ele descarrega em 5 min
+      # e você espera o load inteiro a cada pergunta.
+      - OLLAMA_KEEP_ALIVE=-1
+      # [CPU] OLLAMA_FLASH_ATTENTION e OLLAMA_KV_CACHE_TYPE ficam de fora:
+      # flash attention é caminho de CUDA, e a quantização do KV cache
+      # depende dele. Em CPU são ignorados na melhor das hipóteses.
+      # [CPU] Um modelo por vez — dois de 3B em 8 GB de RAM é pedir OOM.
+      - OLLAMA_MAX_LOADED_MODELS=1
+      # [CPU] Sem paralelismo: cada requisição concorrente divide os mesmos
+      # 2 vCPU e as duas ficam lentas.
+      - OLLAMA_NUM_PARALLEL=1
+    # [CPU] Bloco deploy.resources.devices (passthrough da GPU) removido.
+    # É a única parte estrutural que este ensaio não valida.
+
+  webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: webui
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    volumes:
+      - ./dados/webui:/app/backend/data
+    ports:
+      - "127.0.0.1:3000:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_AUTH=True
+      - ENABLE_SIGNUP=True
+      # RAG: quantos trechos recuperar por pergunta
+      - RAG_TOP_K=5
