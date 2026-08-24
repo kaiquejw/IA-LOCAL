@@ -100,20 +100,28 @@ if   (( VRAM_MB >= 44000 )); then           # A40 inteira (48 GB)
   CANDIDATOS_PRINCIPAL=( "qwen3:32b" "qwen2.5:32b" )
   CANDIDATOS_SECUNDARIO=( "gemma3:27b" )
   NUM_CTX_PADRAO=32768
+  MAX_LOADED_PADRAO=2                       # 20,2 + 17,4 GB cabem juntos
+  NUM_PARALLEL_PADRAO=2
 elif (( VRAM_MB >= 22000 )); then           # fração de 24 GB
   # gemma3:27b na frente de propósito: usa sliding window attention, então
   # o KV cache dele é uma fração do de um 32B — sobra folga pro contexto.
   CANDIDATOS_PRINCIPAL=( "gemma3:27b" "qwen3:14b" )
   CANDIDATOS_SECUNDARIO=( "qwen2.5-coder:14b" )
   NUM_CTX_PADRAO=16384
+  MAX_LOADED_PADRAO=1                       # 17,4 + 9,0 GB NÃO cabem juntos
+  NUM_PARALLEL_PADRAO=2
 elif (( VRAM_MB >= 11000 )); then           # fração de 12 GB
   CANDIDATOS_PRINCIPAL=( "qwen3:14b" "gemma3:12b" )
   CANDIDATOS_SECUNDARIO=()                  # 2 modelos não cabem em 12 GB
   NUM_CTX_PADRAO=8192
+  MAX_LOADED_PADRAO=1
+  NUM_PARALLEL_PADRAO=1                     # cada slot duplica o KV cache
 else                                        # 8 GB ou menos
   CANDIDATOS_PRINCIPAL=( "qwen3:8b" "gemma3:4b" )
   CANDIDATOS_SECUNDARIO=()
   NUM_CTX_PADRAO=8192
+  MAX_LOADED_PADRAO=1
+  NUM_PARALLEL_PADRAO=1
 fi
 
 # override manual ganha da detecção
@@ -121,7 +129,16 @@ if [[ -n "${MODELO:-}" ]]; then
   CANDIDATOS_PRINCIPAL=( "$MODELO" )
 fi
 NUM_CTX="${NUM_CTX:-$NUM_CTX_PADRAO}"
-log "candidatos: ${CANDIDATOS_PRINCIPAL[*]} — num_ctx ${NUM_CTX}"
+
+# Estes dois multiplicam o consumo de VRAM e por isso seguem a mesma detecção:
+#   MAX_LOADED_MODELS  — cada modelo vivo ocupa o peso dele inteiro
+#   NUM_PARALLEL       — cada slot aloca um KV cache próprio de num_ctx tokens
+# Estourar não dá erro: o Ollama derrama na CPU e a resposta despenca.
+# Para forçar:  OLLAMA_NUM_PARALLEL=2 ./bootstrap.sh
+OLLAMA_MAX_LOADED_MODELS="${OLLAMA_MAX_LOADED_MODELS:-$MAX_LOADED_PADRAO}"
+OLLAMA_NUM_PARALLEL="${OLLAMA_NUM_PARALLEL:-$NUM_PARALLEL_PADRAO}"
+
+log "candidatos: ${CANDIDATOS_PRINCIPAL[*]} — num_ctx ${NUM_CTX}, ${OLLAMA_MAX_LOADED_MODELS} modelo(s) vivo(s), ${OLLAMA_NUM_PARALLEL} slot(s)"
 
 # ============================================================
 # ETAPA 3 — Docker + NVIDIA Container Toolkit
@@ -159,6 +176,17 @@ fi
 log "ETAPA 4/5 — subindo containers"
 cd "$DIR"
 mkdir -p dados/ollama dados/webui
+
+# O compose lê este .env sozinho (mesmo diretório). Escrevemos toda vez para
+# que uma troca de plano — 12 GB hoje, 24 GB amanhã — reconfigure a stack sem
+# ninguém precisar lembrar de editar o docker-compose.yml.
+cat > "${DIR}/.env" <<ENVFILE
+# GERADO PELO bootstrap.sh — não edite à mão, é sobrescrito a cada execução.
+# VRAM detectada: ${VRAM_MB} MiB
+OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS}
+OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL}
+ENVFILE
+
 docker compose up -d
 
 log "aguardando Ollama responder..."

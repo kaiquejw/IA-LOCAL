@@ -7,3 +7,4 @@ PRONTO
 backups/
 *.tar.gz
 resultados-*.txt
+.env

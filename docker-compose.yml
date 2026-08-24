@@ -19,10 +19,18 @@ services:
       - OLLAMA_FLASH_ATTENTION=1
       # Quantiza o KV cache: libera ~metade da memória de contexto.
       - OLLAMA_KV_CACHE_TYPE=q8_0
-      # Dois modelos vivos ao mesmo tempo (comparação lado a lado).
-      - OLLAMA_MAX_LOADED_MODELS=2
-      # Duas requisições em paralelo (você + seu amigo).
-      - OLLAMA_NUM_PARALLEL=2
+      # Os dois abaixo vêm do .env que o bootstrap.sh gera a partir da VRAM
+      # detectada. O default 1 é o valor seguro: quem sobe a stack na mão,
+      # sem .env, não derruba o modelo para a CPU sem perceber.
+      #
+      # Cada modelo vivo ocupa o peso dele inteiro na VRAM — só a A40 completa
+      # (48 GB) segura dois. Em 24 GB, gemma3:27b + qwen2.5-coder:14b dá
+      # 26,4 GB e não cabe.
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-1}
+      # Cada slot paralelo aloca um KV cache próprio de num_ctx tokens. Dois
+      # slots = dobro do contexto na conta. Só ligue (2 = você + seu amigo)
+      # onde sobra VRAM; em 12 GB isso é o que empurra o modelo pra CPU.
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
     deploy:
       resources:
         reservations:

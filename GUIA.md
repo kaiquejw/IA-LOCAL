@@ -152,12 +152,20 @@ Guarde essa URL — ela vai ser usada no próximo passo.
    disponível. Não fique esperando a de 24 GB liberar — o `bootstrap.sh` mede a
    VRAM e escolhe o modelo sozinho:
 
-   | VRAM | Modelo principal | `num_ctx` | Segundo modelo |
-   |---|---|---|---|
-   | 48 GB | `qwen3:32b` (20,2 GB) | 32768 | `gemma3:27b` |
-   | 24 GB | `gemma3:27b` (17,4 GB) | 16384 | `qwen2.5-coder:14b` |
-   | 12 GB | `qwen3:14b` (9,3 GB) | 8192 | nenhum |
-   | 8 GB | `qwen3:8b` (5,2 GB) | 8192 | nenhum |
+   | VRAM | Modelo principal | `num_ctx` | Segundo modelo | Modelos vivos | Slots paralelos |
+   |---|---|---|---|---|---|
+   | 48 GB | `qwen3:32b` (20,2 GB) | 32768 | `gemma3:27b` | 2 | 2 |
+   | 24 GB | `gemma3:27b` (17,4 GB) | 16384 | `qwen2.5-coder:14b` | 1 | 2 |
+   | 12 GB | `qwen3:14b` (9,3 GB) | 8192 | nenhum | 1 | 1 |
+   | 8 GB | `qwen3:8b` (5,2 GB) | 8192 | nenhum | 1 | 1 |
+
+   As duas últimas colunas viram um `.env` que o `bootstrap.sh` escreve e o
+   `docker-compose.yml` lê. **Modelos vivos** é quantos pesos ficam na VRAM ao
+   mesmo tempo; **slots paralelos** é quantas conversas simultâneas — cada slot
+   aloca um KV cache próprio de `num_ctx` tokens. Só a A40 completa segura dois
+   modelos: em 24 GB, `gemma3:27b` + `qwen2.5-coder:14b` soma 26,4 GB. Com 1
+   modelo vivo, trocar de `tutor` para `coder` na WebUI recarrega — alguns
+   segundos, muito melhor que rodar transbordado na CPU.
 
    Em 24 GB o `gemma3:27b` vem na frente de um 32B de propósito: ele usa
    *sliding window attention*, então o KV cache custa uma fração — sobra folga
