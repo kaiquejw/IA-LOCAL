@@ -7,20 +7,17 @@ Sobe do zero em uma instância limpa, sem intervenção manual.
 
 ## Uso rápido
 
-Startup Script da instância (Vultr / RunPod / qualquer Ubuntu 24.04 com GPU):
+Dentro do pod da RunPod (por SSH):
 
 ```bash
-#!/bin/bash
-if [ ! -d /opt/ia ]; then
-  git clone https://github.com/kaiquejw/IA-LOCAL.git /opt/ia
-fi
-cd /opt/ia && chmod +x bootstrap.sh && ./bootstrap.sh
+git clone https://github.com/kaiquejw/IA-LOCAL.git /workspace/IA-LOCAL   # só na 1ª vez
+cd /workspace/IA-LOCAL && git pull && WEBUI=1 bash runpod-start.sh
 ```
 
 Acesso (do seu PC):
 
 ```bash
-ssh -N -L 3000:localhost:3000 -L 11434:localhost:11434 root@IP
+ssh -N -L 3000:localhost:3000 -L 11434:localhost:11434 root@IP -p PORTA
 # navegador: http://localhost:3000
 ```
 
@@ -28,24 +25,20 @@ ssh -N -L 3000:localhost:3000 -L 11434:localhost:11434 root@IP
 
 | Arquivo | O que faz |
 |---|---|
-| `GUIA.md` | **Comece aqui.** Passo a passo completo. |
-| `GUIA-CPU.md` | Ensaio em VPS de CPU antes de gastar GPU. |
-| `bootstrap.sh` | Provisiona tudo. Idempotente, retoma se reiniciar. |
-| `bootstrap-cpu.sh` | Mesma sequência sem a etapa do driver NVIDIA. |
-| `docker-compose.yml` | Ollama + Open WebUI. Portas presas em 127.0.0.1. |
-| `docker-compose.cpu.yml` | Mesma stack sem o passthrough de GPU. |
+| `runpod-start.sh` | Sobe a stack num pod da RunPod. Modelos e WebUI ficam no volume /workspace. |
 | `modelfiles/tutor.Modelfile` | Modelo principal de estudo. |
 | `modelfiles/coder.Modelfile` | Foco em código. |
-| `ia-sync.sh` | Backup/restore do histórico entre instâncias. |
 | `bench.sh` | Roda o conjunto de teste fixo. |
 | `prompts-teste.txt` | 15 prompts de avaliação. Não altere sem motivo. |
 | `log.md` | Diário de sessões. |
+| `legado-vultr/` | Scripts da época da VM na Vultr (`GUIA.md`, `GUIA-CPU.md`, `bootstrap.sh`, `bootstrap-cpu.sh`, `docker-compose*.yml`, `ia-sync.sh`). Não servem no pod da RunPod (container sem systemd/Docker). |
 
 ## Segurança
 
 - Portas expostas apenas em `127.0.0.1`. Acesso só via túnel SSH.
 - `ufw` habilitado, somente porta 22 aberta.
 - **Nenhuma credencial neste repositório.** Nunca comitar token, senha ou chave privada.
+- Na RunPod, dê **Terminate** ao fim da sessão (Stop continua cobrando o disco). O volume mantém os modelos.
 
 ## Antes de subir
 

@@ -21,9 +21,9 @@ command -v curl >/dev/null || { echo "ERRO: curl não instalado (apt install cur
   echo "MODELO: $MODELO"
   echo "DATA:   $(date)"
   echo "PARAMS:"
-  docker exec ollama ollama show "$MODELO" --parameters 2>/dev/null || true
+  ollama show "$MODELO" --parameters 2>/dev/null || true
   echo "PROCESSADOR (queremos 100% GPU):"
-  docker exec ollama ollama ps 2>/dev/null || true
+  ollama ps 2>/dev/null || true
   echo "========================================"
 } > "$SAIDA"
 
