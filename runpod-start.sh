@@ -39,6 +39,7 @@ LOGS="${LOGS:-$W/logs}"
 mkdir -p "$LOGS" "$W/ollama" "$W/modelfiles-gerados"
 
 log() { echo -e "\n>>> $*"; }
+espaco() { df -h --output=used,size,pcent "$W/ollama" | tail -1 | awk '{print $1 " de " $2 " (" $3 ")"}'; }
 
 # Mesmas otimizações do docker-compose.yml
 export OLLAMA_MODELS="$W/ollama"
@@ -164,8 +165,8 @@ curl -sf http://127.0.0.1:11434/api/version >/dev/null \
 # ============================================================
 BASE=""
 for m in "${PRINCIPAL[@]}"; do
-  log "modelo principal: tentando $m"
-  if ollama pull "$m"; then BASE="$m"; break; fi
+  log "modelo principal: tentando $m | disco antes: $(espaco)"
+  if ollama pull "$m"; then BASE="$m"; log "disco depois: $(espaco)"; break; fi
 done
 [[ -n "$BASE" ]] || { log "ERRO: nenhum modelo baixou. Veja ollama.com/library"; exit 1; }
 
@@ -182,9 +183,14 @@ if [[ "${REDTEAM:-0}" == "1" ]]; then
   if ! ollama list | awk -v m="$m" 'NR>1 && $1==m {f=1} END {exit !f}' && (( ${livre_gb:-0} < 22 )); then
     log "AVISO: só ${livre_gb} GB livres em $W/ollama; $m precisa de ~20 GB. redteam pulado."
   else
-    log "modelo redteam: baixando $m (~20 GB a mais)"
-    if ollama pull "$m"; then REDTEAM_BASE="$m"; else log "AVISO: não baixou $m; redteam pulado."; fi
+    log "modelo redteam: baixando $m (~20 GB a mais) | disco antes: $(espaco)"
+    if ollama pull "$m"; then REDTEAM_BASE="$m"; log "disco depois: $(espaco)"
+    else log "AVISO: não baixou $m; redteam pulado."; fi
   fi
+elif [[ "$BASE" == *abliterated* ]]; then
+  # Base já é sem filtro (MODELO=huihui_ai/qwen3-abliterated:32b): um modelo só
+  # serve tutor, coder e redteam, sem baixar mais 20 GB.
+  REDTEAM_BASE="$BASE"
 fi
 
 # ============================================================
@@ -229,6 +235,26 @@ fi
 #     quem inicia é você, com `hermes` no terminal do pod.
 # ============================================================
 if [[ "${HERMES:-0}" == "1" ]]; then
+  # O Hermes recusa iniciar com menos de 64K de contexto, e o qwen3:32b tem
+  # janela nativa de 40960 no Ollama. Por isso o Hermes tem modelo PRÓPRIO, com
+  # janela nativa >= 64K e chamada de ferramenta. Nunca force além do nativo.
+  HERMES_MODELO="${HERMES_MODELO:-qwen3-coder:30b}"
+  HERMES_CTX="${HERMES_CTX:-65536}"
+  livre_gb="$(df -BG --output=avail "$W/ollama" | tail -1 | tr -dc '0-9')"
+  if ! ollama list | awk -v m="$HERMES_MODELO" 'NR>1 && $1==m {f=1} END {exit !f}' && (( ${livre_gb:-0} < 21 )); then
+    log "AVISO: só ${livre_gb} GB livres; $HERMES_MODELO precisa de ~19 GB. Hermes sem modelo."
+  else
+    log "Hermes: baixando $HERMES_MODELO | disco antes: $(espaco)"
+    ollama pull "$HERMES_MODELO" && log "disco depois: $(espaco)" \
+      || log "AVISO: não baixou $HERMES_MODELO"
+  fi
+  nativo="$(ollama show "$HERMES_MODELO" 2>/dev/null | awk '/context length/ {print $3; exit}')"
+  if (( ${nativo:-0} < HERMES_CTX )); then
+    log "AVISO: $HERMES_MODELO tem janela nativa ${nativo:-desconhecida}, menor que ${HERMES_CTX}."
+    log "       O Hermes não vai iniciar com ele. Troque HERMES_MODELO."
+  else
+    log "Hermes: $HERMES_MODELO tem janela nativa ${nativo}; usando ${HERMES_CTX}"
+  fi
   if [[ ! -x "$W/venv-hermes/bin/hermes" ]]; then
     log "instalando Hermes Agent em $W/venv-hermes"
     command -v rg >/dev/null || apt-get install -y -qq ripgrep >/dev/null || true
@@ -247,9 +273,9 @@ model:
   provider: "custom"                      # endpoint OpenAI-compat local
   base_url: "http://127.0.0.1:11434/v1"
   api_key: ""                             # Ollama local não usa key
-  default: "${BASE}"                      # o modelo base, NÃO o tutor: o Hermes tem prompt próprio
-  context_length: ${NUM_CTX}
-  ollama_num_ctx: ${NUM_CTX}              # o Hermes manda o num_ctx em cada request
+  default: "${HERMES_MODELO}"             # modelo cru, NÃO tutor/coder: o Hermes tem prompt próprio
+  context_length: ${HERMES_CTX}           # o Hermes exige >= 64000
+  ollama_num_ctx: ${HERMES_CTX}           # o Hermes manda esse num_ctx em cada request
   # Resposta longa dando timeout? O Hermes já sobe a leitura para 1800 s em
   # endpoint local; para forçar: export HERMES_STREAM_READ_TIMEOUT=3600
 
@@ -262,22 +288,17 @@ approvals:
 agent:
   # Busca web e navegador na nuvem DESLIGADOS: precisam de chave de provedor
   # externo. Para ligar depois: ponha a chave em ~/.hermes/.env (o browser pede
-  # BROWSERBASE_API_KEY) e tire o nome desta lista, ou use \`hermes tools\`.
+  # BROWSERBASE_API_KEY), tire o nome desta lista e rode \`hermes tools enable web\`
+  # (ou \`hermes tools\`, que é interativo).
   disabled_toolsets: [web, search, browser]
 
 memory:
   memory_enabled: true                    # grava em ~/.hermes/memories/MEMORY.md
   user_profile_enabled: true
 EOF
-    log "Hermes configurado: $W/hermes/config.yaml (modelo ${BASE}, ctx ${NUM_CTX})"
+    log "Hermes configurado: $W/hermes/config.yaml (modelo ${HERMES_MODELO}, ctx ${HERMES_CTX})"
   else
     log "Hermes: config existente mantida ($W/hermes/config.yaml)"
-  fi
-  # Testado em 17/10/2026: o Hermes recusa iniciar abaixo de 64K de contexto, e
-  # o qwen3:32b tem janela nativa de 40960 no Ollama. Ver a nota no README.
-  if (( NUM_CTX < 64000 )); then
-    log "AVISO: o Hermes exige >= 64K de contexto e NÃO inicia com ${NUM_CTX} (${BASE})."
-    log "       Veja a nota do Hermes no README antes de usar."
   fi
 fi
 
@@ -287,7 +308,7 @@ log " PRONTO — base: ${BASE} | num_ctx ${NUM_CTX}"
 ollama list
 log " Chat no terminal:   ollama run tutor"
 [[ -n "$REDTEAM_BASE" ]] && log " Segurança:          ollama run redteam  (base ${REDTEAM_BASE})"
-[[ "${HERMES:-0}" == "1" ]] && log " Hermes Agent:       hermes   (no terminal do pod; pede confirmação antes de comando perigoso)"
+[[ "${HERMES:-0}" == "1" ]] && log " Hermes Agent:       hermes   (modelo ${HERMES_MODELO}, ctx ${HERMES_CTX}; pede confirmação antes de comando perigoso)"
 log " No SEU PC (túnel):  ssh -N -L 3000:localhost:3000 -L 11434:localhost:11434 root@IP -p PORTA"
 log " Ao terminar:        Terminate no painel (ou espere o auto-off)"
 log "================================================"
