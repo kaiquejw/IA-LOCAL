@@ -14,6 +14,15 @@ git clone https://github.com/kaiquejw/IA-LOCAL.git /workspace/IA-LOCAL   # só n
 cd /workspace/IA-LOCAL && git pull && WEBUI=1 bash runpod-start.sh
 ```
 
+Se o `/workspace` for volume de rede (`findmnt -T /workspace` mostra `fuse.geesefs`),
+ele não aceita `chmod`: o `git clone` falha lá. Rode tudo no disco do container
+(some no Terminate, então o modelo baixa de novo a cada pod):
+
+```bash
+git clone https://github.com/kaiquejw/IA-LOCAL.git /root/ia/IA-LOCAL
+cd /root/ia/IA-LOCAL && W=/root/ia LOGS=/workspace/logs WEBUI=1 bash runpod-start.sh
+```
+
 Acesso (do seu PC):
 
 ```bash
@@ -25,7 +34,7 @@ ssh -N -L 3000:localhost:3000 -L 11434:localhost:11434 root@IP -p PORTA
 
 | Arquivo | O que faz |
 |---|---|
-| `runpod-start.sh` | Sobe a stack num pod da RunPod. Modelos e WebUI ficam no volume /workspace. |
+| `runpod-start.sh` | Sobe a stack num pod da RunPod. Modelos e WebUI ficam no volume /workspace (ou no disco do container, com `W=/root/ia`). |
 | `modelfiles/tutor.Modelfile` | Modelo principal de estudo. |
 | `modelfiles/coder.Modelfile` | Foco em código. |
 | `bench.sh` | Roda o conjunto de teste fixo. |
@@ -38,7 +47,7 @@ ssh -N -L 3000:localhost:3000 -L 11434:localhost:11434 root@IP -p PORTA
 - Portas expostas apenas em `127.0.0.1`. Acesso só via túnel SSH.
 - `ufw` habilitado, somente porta 22 aberta.
 - **Nenhuma credencial neste repositório.** Nunca comitar token, senha ou chave privada.
-- Na RunPod, dê **Terminate** ao fim da sessão (Stop continua cobrando o disco). O volume mantém os modelos.
+- Na RunPod, dê **Terminate** ao fim da sessão (Stop continua cobrando o disco). O volume mantém os modelos (com `W=/root/ia`, só os logs).
 
 ## Antes de subir
 

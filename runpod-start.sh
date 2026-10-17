@@ -21,12 +21,16 @@
 #   AUTO_OFF_MIN=150   apaga o pod sozinho depois de N minutos (0 = desliga)
 #   MODELO=gemma3:27b  força o modelo base
 #   NUM_CTX=16384      força o contexto
+#   W=/root/ia         raiz de tudo (padrão /workspace). Use o disco do container
+#                      quando o volume for de rede (fuse.geesefs): ele não aceita
+#                      chmod, e git clone e venv quebram lá. Nesse caso nada persiste.
+#   LOGS=/workspace/logs  onde gravar os logs (padrão $W/logs)
 #
 set -euo pipefail
 
-W=/workspace
+W="${W:-/workspace}"
 REPO="${REPO:-$W/IA-LOCAL}"
-LOGS="$W/logs"
+LOGS="${LOGS:-$W/logs}"
 mkdir -p "$LOGS" "$W/ollama" "$W/modelfiles-gerados"
 
 log() { echo -e "\n>>> $*"; }
