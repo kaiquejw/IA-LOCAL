@@ -9,7 +9,7 @@
 # fica no volume em /workspace.
 #
 # O que fica no volume (persiste entre pods):  modelos, venv do WebUI,
-#                                              dados do WebUI, logs
+#                                              dados do WebUI, logs, Hermes
 # O que some a cada Terminate (reinstala ~30s): binário do ollama
 #
 # Uso, dentro do pod:
@@ -18,7 +18,12 @@
 # Opções (variáveis de ambiente):
 #   WEBUI=1            sobe o Open WebUI em 127.0.0.1:3000 (acesso por túnel)
 #   SECUNDARIO=1       baixa também o 2º modelo (só em 48 GB; ocupa ~17 GB a mais)
-#   AUTO_OFF_MIN=150   apaga o pod sozinho depois de N minutos (0 = desliga)
+#   AUTO_OFF_MIN=150   apaga o pod sozinho depois de N minutos (0 = desliga).
+#                      Precisa de RUNPOD_API_KEY (sua key, como Secret do pod);
+#                      sem ela só avisa. AUTO_OFF_API_KEY tem prioridade se definida.
+#   REDTEAM=1          baixa um Qwen3 32B abliterated (~20 GB a mais) e cria o
+#                      modelo "redteam". MODELO_REDTEAM=... troca a tag.
+#   HERMES=1           instala e configura o Hermes Agent (não sobe sozinho)
 #   MODELO=gemma3:27b  força o modelo base
 #   NUM_CTX=16384      força o contexto
 #   W=/root/ia         raiz de tudo (padrão /workspace). Use o disco do container
@@ -45,20 +50,61 @@ export OLLAMA_KV_CACHE_TYPE=q8_0
 # ============================================================
 # 0 — desligamento automático (o maior risco de custo é esquecer)
 # ============================================================
+# Precisa de uma API key do USUÁRIO com escrita, guardada como Secret do pod
+# (nunca no repo). A key que a RunPod injeta sozinha no pod também se chama
+# RUNPOD_API_KEY, mas é restrita: responde Unauthorized. Se as duas colidirem,
+# ponha a sua em AUTO_OFF_API_KEY, que tem prioridade.
+#
+# ssh não interativo não lê /etc/rp_environment (o .bashrc só faz isso em shell
+# interativo), então as variáveis da RunPod vêm de lá quando faltarem.
+if [[ -r /etc/rp_environment ]]; then
+  [[ -n "${RUNPOD_POD_ID:-}" ]]  || eval "$(grep -E '^export RUNPOD_POD_ID=' /etc/rp_environment || true)"
+  [[ -n "${RUNPOD_API_KEY:-}" ]] || eval "$(grep -E '^export RUNPOD_API_KEY=' /etc/rp_environment || true)"
+fi
 AUTO_OFF_MIN="${AUTO_OFF_MIN:-150}"
-if (( AUTO_OFF_MIN > 0 )) && [[ -n "${RUNPOD_POD_ID:-}" ]] && command -v runpodctl >/dev/null; then
+AUTO_OFF_KEY="${AUTO_OFF_API_KEY:-${RUNPOD_API_KEY:-}}"
+RP_API=https://api.runpod.io/graphql
+
+# A key vai pelo stdin do curl (-H @-), nunca na linha de comando: assim não
+# aparece no ps nem no log.
+rp_api() {
+  printf 'Authorization: Bearer %s\n' "$AUTO_OFF_KEY" \
+    | curl -sS --max-time 30 -H @- -H 'Content-Type: application/json' -d "$1" "$RP_API" 2>&1 || true
+}
+
+if (( AUTO_OFF_MIN <= 0 )); then
+  log "AVISO: auto-off desligado (AUTO_OFF_MIN=0). Só o Terminate manual encerra a cobrança."
+elif [[ -z "$AUTO_OFF_KEY" ]]; then
+  log "AVISO: RUNPOD_API_KEY não definida: desligamento automático DESLIGADO."
+  log "       Só o Terminate manual encerra a cobrança."
+elif [[ ! "${RUNPOD_POD_ID:-}" =~ ^[a-z0-9]+$ ]]; then
+  log "AVISO: RUNPOD_POD_ID ausente (fora da RunPod?): desligamento automático DESLIGADO."
+else
+  # Validação só com LEITURA. O delete não dá para testar: apagaria o pod.
+  resp="$(rp_api "$(printf '{"query":"query { pod(input: {podId: \\"%s\\"}) { id desiredStatus } }"}' "$RUNPOD_POD_ID")")"
+  if [[ "$resp" == *"\"id\":\"$RUNPOD_POD_ID\""* ]]; then
+    log "auto-off: a key autentica (leitura do pod ok)"
+  else
+    log "AVISO: a key NÃO autenticou na leitura: ${resp:0:200}"
+    log "       O auto-off vai ser agendado mesmo assim, mas PROVAVELMENTE NÃO VAI FUNCIONAR."
+    log "       Dê Terminate na mão."
+  fi
   if ! pgrep -f "ia-auto-off" >/dev/null; then
-    # sem exec: exec trocaria o shell pelo sleep e o runpodctl nunca rodaria.
-    # "ia-auto-off" vai como $0 só para o pgrep/pkill -f acharem o processo.
-    nohup bash -c "sleep $(( AUTO_OFF_MIN * 60 )); runpodctl remove pod $RUNPOD_POD_ID" ia-auto-off \
-      > "$LOGS/auto-off.log" 2>&1 &
-    log "pod será APAGADO em ${AUTO_OFF_MIN} min ($(date -d "+${AUTO_OFF_MIN} min" +%H:%M) UTC)."
+    # Sem exec: "exec -a ... sleep" trocava o shell pelo sleep e o comando de
+    # remover nunca rodava. "ia-auto-off" vai como $0 só para o pgrep/pkill -f.
+    # Key e corpo vão pelo ambiente do processo, não pela linha de comando.
+    IA_KEY="$AUTO_OFF_KEY" RP_API="$RP_API" \
+    IA_BODY="$(printf '{"query":"mutation { podTerminate(input: {podId: \\"%s\\"}) }"}' "$RUNPOD_POD_ID")" \
+    nohup bash -c 'sleep "$1"
+      echo "$(date -u +%FT%TZ) encerrando o pod (podTerminate)"
+      printf "Authorization: Bearer %s\n" "$IA_KEY" \
+        | curl -sS --max-time 60 -H @- -H "Content-Type: application/json" -d "$IA_BODY" "$RP_API"
+      echo' ia-auto-off "$(( AUTO_OFF_MIN * 60 ))" > "$LOGS/auto-off.log" 2>&1 &
+    log "pod será APAGADO em ${AUTO_OFF_MIN} min ($(date -u -d "+${AUTO_OFF_MIN} min" +%H:%M) UTC)."
     log "para cancelar: pkill -f ia-auto-off"
   else
     log "desligamento automático já agendado"
   fi
-else
-  log "AVISO: sem desligamento automático. Lembre de dar Terminate."
 fi
 
 # ============================================================
@@ -126,14 +172,32 @@ if [[ "${SECUNDARIO:-0}" == "1" ]] && (( ${#SEGUNDO[@]} > 0 )); then
   for m in "${SEGUNDO[@]}"; do ollama pull "$m" && break; done
 fi
 
+# Modelo sem filtro para estudo autorizado de segurança: menos recusa falsa em
+# pergunta técnica legítima. Tag conferida no registry.ollama.ai (19,8 GB).
+REDTEAM_BASE=""
+if [[ "${REDTEAM:-0}" == "1" ]]; then
+  m="${MODELO_REDTEAM:-huihui_ai/qwen3-abliterated:32b}"
+  livre_gb="$(df -BG --output=avail "$W/ollama" | tail -1 | tr -dc '0-9')"
+  if ! ollama list | awk -v m="$m" 'NR>1 && $1==m {f=1} END {exit !f}' && (( ${livre_gb:-0} < 22 )); then
+    log "AVISO: só ${livre_gb} GB livres em $W/ollama; $m precisa de ~20 GB. redteam pulado."
+  else
+    log "modelo redteam: baixando $m (~20 GB a mais)"
+    if ollama pull "$m"; then REDTEAM_BASE="$m"; else log "AVISO: não baixou $m; redteam pulado."; fi
+  fi
+fi
+
 # ============================================================
 # 5 — modelos customizados a partir dos Modelfiles do repo
 # ============================================================
 for f in "$REPO"/modelfiles/*.Modelfile; do
   [[ -e "$f" ]] || continue
   nome="$(basename "$f" .Modelfile)"
+  if grep -q '__MODELO_REDTEAM__' "$f" && [[ -z "$REDTEAM_BASE" ]]; then
+    log "pulado: $nome (precisa de REDTEAM=1)"; continue
+  fi
   out="$W/modelfiles-gerados/${nome}.Modelfile"
   sed -e "s|__MODELO_BASE__|${BASE}|g" \
+      -e "s|__MODELO_REDTEAM__|${REDTEAM_BASE}|g" \
       -e "s|^PARAMETER num_ctx .*|PARAMETER num_ctx ${NUM_CTX}|" "$f" > "$out"
   ollama create "$nome" -f "$out" >/dev/null && log "criado: $nome" || log "AVISO: falhou $nome"
 done
@@ -160,10 +224,63 @@ if [[ "${WEBUI:-0}" == "1" ]]; then
 fi
 
 # ============================================================
+# 7 — Hermes Agent (opcional, Nous Research, MIT). Só instala e configura;
+#     quem inicia é você, com `hermes` no terminal do pod.
+# ============================================================
+if [[ "${HERMES:-0}" == "1" ]]; then
+  if [[ ! -x "$W/venv-hermes/bin/hermes" ]]; then
+    log "instalando Hermes Agent em $W/venv-hermes"
+    command -v rg >/dev/null || apt-get install -y -qq ripgrep >/dev/null || true
+    python3 -m venv --system-site-packages "$W/venv-hermes"
+    "$W/venv-hermes/bin/pip" install -q hermes-agent
+  fi
+  # Estado do Hermes (config, memória, sessões) em $W/hermes; ~/.hermes aponta
+  # para lá, então `hermes` acha sem precisar de HERMES_HOME.
+  mkdir -p "$W/hermes"
+  [[ -e "$HOME/.hermes" ]] || ln -s "$W/hermes" "$HOME/.hermes"
+  ln -sf "$W/venv-hermes/bin/hermes" /usr/local/bin/hermes
+  if [[ ! -f "$W/hermes/config.yaml" ]]; then
+    cat > "$W/hermes/config.yaml" <<EOF
+# Gerado pelo runpod-start.sh (só quando não existe; o seu fica intacto).
+model:
+  provider: "custom"                      # endpoint OpenAI-compat local
+  base_url: "http://127.0.0.1:11434/v1"
+  api_key: ""                             # Ollama local não usa key
+  default: "${BASE}"                      # o modelo base, NÃO o tutor: o Hermes tem prompt próprio
+  context_length: ${NUM_CTX}
+  ollama_num_ctx: ${NUM_CTX}              # o Hermes manda o num_ctx em cada request
+  # Resposta longa dando timeout? O Hermes já sobe a leitura para 1800 s em
+  # endpoint local; para forçar: export HERMES_STREAM_READ_TIMEOUT=3600
+
+approvals:
+  # Confirmação ANTES de executar comando perigoso: LIGADA. "manual" sempre
+  # pergunta (o padrão "smart" deixa um LLM aprovar sozinho). Nunca use "off",
+  # --yolo nem HERMES_YOLO_MODE.
+  mode: "manual"
+
+agent:
+  # Busca web e navegador na nuvem DESLIGADOS: precisam de chave de provedor
+  # externo. Para ligar depois: ponha a chave em ~/.hermes/.env (o browser pede
+  # BROWSERBASE_API_KEY) e tire o nome desta lista, ou use \`hermes tools\`.
+  disabled_toolsets: [web, search, browser]
+
+memory:
+  memory_enabled: true                    # grava em ~/.hermes/memories/MEMORY.md
+  user_profile_enabled: true
+EOF
+    log "Hermes configurado: $W/hermes/config.yaml (modelo ${BASE}, ctx ${NUM_CTX})"
+  else
+    log "Hermes: config existente mantida ($W/hermes/config.yaml)"
+  fi
+fi
+
+# ============================================================
 log "================================================"
 log " PRONTO — base: ${BASE} | num_ctx ${NUM_CTX}"
 ollama list
 log " Chat no terminal:   ollama run tutor"
+[[ -n "$REDTEAM_BASE" ]] && log " Segurança:          ollama run redteam  (base ${REDTEAM_BASE})"
+[[ "${HERMES:-0}" == "1" ]] && log " Hermes Agent:       hermes   (no terminal do pod; pede confirmação antes de comando perigoso)"
 log " No SEU PC (túnel):  ssh -N -L 3000:localhost:3000 -L 11434:localhost:11434 root@IP -p PORTA"
 log " Ao terminar:        Terminate no painel (ou espere o auto-off)"
 log "================================================"
