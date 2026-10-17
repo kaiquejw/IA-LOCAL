@@ -255,6 +255,15 @@ if [[ "${HERMES:-0}" == "1" ]]; then
   else
     log "Hermes: $HERMES_MODELO tem janela nativa ${nativo}; usando ${HERMES_CTX}"
   fi
+  # O Hermes fala pela API OpenAI (/v1), e por ali o Ollama ignora o num_ctx do
+  # request e serve no padrão calculado pela VRAM (32768 na A40). Um apelido só
+  # com o num_ctx, sem SYSTEM, fixa os 64K e não muda o comportamento do modelo.
+  HERMES_ALIAS="${HERMES_MODELO%%:*}-hermes"
+  printf 'FROM %s\nPARAMETER num_ctx %s\n' "$HERMES_MODELO" "$HERMES_CTX" \
+    > "$W/modelfiles-gerados/${HERMES_ALIAS}.Modelfile"
+  ollama create "$HERMES_ALIAS" -f "$W/modelfiles-gerados/${HERMES_ALIAS}.Modelfile" >/dev/null \
+    && log "criado: $HERMES_ALIAS ($HERMES_MODELO com num_ctx $HERMES_CTX)" \
+    || log "AVISO: falhou $HERMES_ALIAS"
   if [[ ! -x "$W/venv-hermes/bin/hermes" ]]; then
     log "instalando Hermes Agent em $W/venv-hermes"
     command -v rg >/dev/null || apt-get install -y -qq ripgrep >/dev/null || true
@@ -273,7 +282,7 @@ model:
   provider: "custom"                      # endpoint OpenAI-compat local
   base_url: "http://127.0.0.1:11434/v1"
   api_key: ""                             # Ollama local não usa key
-  default: "${HERMES_MODELO}"             # modelo cru, NÃO tutor/coder: o Hermes tem prompt próprio
+  default: "${HERMES_ALIAS}"      # ${HERMES_MODELO} cru + num_ctx; NÃO tutor/coder: o Hermes tem prompt próprio
   context_length: ${HERMES_CTX}           # o Hermes exige >= 64000
   ollama_num_ctx: ${HERMES_CTX}           # o Hermes manda esse num_ctx em cada request
   # Resposta longa dando timeout? O Hermes já sobe a leitura para 1800 s em
@@ -296,7 +305,7 @@ memory:
   memory_enabled: true                    # grava em ~/.hermes/memories/MEMORY.md
   user_profile_enabled: true
 EOF
-    log "Hermes configurado: $W/hermes/config.yaml (modelo ${HERMES_MODELO}, ctx ${HERMES_CTX})"
+    log "Hermes configurado: $W/hermes/config.yaml (modelo ${HERMES_ALIAS}, ctx ${HERMES_CTX})"
   else
     log "Hermes: config existente mantida ($W/hermes/config.yaml)"
   fi
@@ -308,7 +317,7 @@ log " PRONTO — base: ${BASE} | num_ctx ${NUM_CTX}"
 ollama list
 log " Chat no terminal:   ollama run tutor"
 [[ -n "$REDTEAM_BASE" ]] && log " Segurança:          ollama run redteam  (base ${REDTEAM_BASE})"
-[[ "${HERMES:-0}" == "1" ]] && log " Hermes Agent:       hermes   (modelo ${HERMES_MODELO}, ctx ${HERMES_CTX}; pede confirmação antes de comando perigoso)"
+[[ "${HERMES:-0}" == "1" ]] && log " Hermes Agent:       hermes   (modelo ${HERMES_ALIAS}, ctx ${HERMES_CTX}; pede confirmação antes de comando perigoso)"
 log " No SEU PC (túnel):  ssh -N -L 3000:localhost:3000 -L 11434:localhost:11434 root@IP -p PORTA"
 log " Ao terminar:        Terminate no painel (ou espere o auto-off)"
 log "================================================"
