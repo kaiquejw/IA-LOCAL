@@ -19,8 +19,8 @@
 #   WEBUI=1            sobe o Open WebUI em 127.0.0.1:3000 (acesso por túnel)
 #   SECUNDARIO=1       baixa também o 2º modelo (só em 48 GB; ocupa ~17 GB a mais)
 #   AUTO_OFF_MIN=150   apaga o pod sozinho depois de N minutos (0 = desliga).
-#                      Precisa de RUNPOD_API_KEY (sua key, como Secret do pod);
-#                      sem ela só avisa. AUTO_OFF_API_KEY tem prioridade se definida.
+#                      Usa RUNPOD_API_KEY (a RunPod injeta uma restrita ao pod);
+#                      sem key só avisa. AUTO_OFF_API_KEY (sua, como Secret) tem prioridade.
 #   REDTEAM=1          baixa um Qwen3 32B abliterated (~20 GB a mais) e cria o
 #                      modelo "redteam". MODELO_REDTEAM=... troca a tag.
 #   HERMES=1           instala e configura o Hermes Agent (não sobe sozinho)
@@ -50,10 +50,11 @@ export OLLAMA_KV_CACHE_TYPE=q8_0
 # ============================================================
 # 0 — desligamento automático (o maior risco de custo é esquecer)
 # ============================================================
-# Precisa de uma API key do USUÁRIO com escrita, guardada como Secret do pod
-# (nunca no repo). A key que a RunPod injeta sozinha no pod também se chama
-# RUNPOD_API_KEY, mas é restrita: responde Unauthorized. Se as duas colidirem,
-# ponha a sua em AUTO_OFF_API_KEY, que tem prioridade.
+# Usa RUNPOD_API_KEY. A RunPod já injeta no pod uma key restrita com esse nome.
+# Em 17/10/2026 ela LEU o próprio pod pela API GraphQL; o Unauthorized de antes
+# vinha do runpodctl sem config, não da key. O delete com ela nunca foi testado.
+# Para ter certeza, use uma key SUA com escrita, guardada como Secret do pod
+# (nunca no repo), em AUTO_OFF_API_KEY, que tem prioridade.
 #
 # ssh não interativo não lê /etc/rp_environment (o .bashrc só faz isso em shell
 # interativo), então as variáveis da RunPod vêm de lá quando faltarem.
@@ -83,7 +84,7 @@ else
   # Validação só com LEITURA. O delete não dá para testar: apagaria o pod.
   resp="$(rp_api "$(printf '{"query":"query { pod(input: {podId: \\"%s\\"}) { id desiredStatus } }"}' "$RUNPOD_POD_ID")")"
   if [[ "$resp" == *"\"id\":\"$RUNPOD_POD_ID\""* ]]; then
-    log "auto-off: a key autentica (leitura do pod ok)"
+    log "auto-off: a key autentica (leitura do pod ok; o delete não dá para testar)"
   else
     log "AVISO: a key NÃO autenticou na leitura: ${resp:0:200}"
     log "       O auto-off vai ser agendado mesmo assim, mas PROVAVELMENTE NÃO VAI FUNCIONAR."
@@ -271,6 +272,12 @@ EOF
     log "Hermes configurado: $W/hermes/config.yaml (modelo ${BASE}, ctx ${NUM_CTX})"
   else
     log "Hermes: config existente mantida ($W/hermes/config.yaml)"
+  fi
+  # Testado em 17/10/2026: o Hermes recusa iniciar abaixo de 64K de contexto, e
+  # o qwen3:32b tem janela nativa de 40960 no Ollama. Ver a nota no README.
+  if (( NUM_CTX < 64000 )); then
+    log "AVISO: o Hermes exige >= 64K de contexto e NÃO inicia com ${NUM_CTX} (${BASE})."
+    log "       Veja a nota do Hermes no README antes de usar."
   fi
 fi
 

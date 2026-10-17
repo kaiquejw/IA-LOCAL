@@ -38,9 +38,21 @@ próprio Ollama, que baixa os blobs mas falha ao gravar o manifesto
 | `WEBUI=1` | Sobe o Open WebUI em `127.0.0.1:3000`. |
 | `REDTEAM=1` | Baixa `huihui_ai/qwen3-abliterated:32b` (~20 GB a mais) e cria o modelo `redteam`, para estudo de segurança em laboratório autorizado. Só cabe com disco sobrando (o container tem 30 GB). |
 | `HERMES=1` | Instala e configura o Hermes Agent apontando para o Ollama local. Não sobe sozinho: rode `hermes` no terminal do pod. Confirmação antes de comando perigoso fica **ligada**. Busca web e navegador ficam **desligados**. |
-| `RUNPOD_API_KEY` | Sua API key da RunPod, com escrita, guardada como **Secret** do pod (nunca no repo). Sem ela não existe auto-off. A key que a RunPod injeta no pod tem o mesmo nome, mas dá `Unauthorized`. Se colidir, use `AUTO_OFF_API_KEY`. |
-| `AUTO_OFF_MIN=150` | Apaga o pod depois de N minutos (`0` desliga). Só funciona com a key acima. |
+| `RUNPOD_API_KEY` / `AUTO_OFF_API_KEY` | Key que o auto-off usa na API GraphQL (`podTerminate`). A RunPod já injeta uma `RUNPOD_API_KEY` restrita ao pod: ela **lê** o próprio pod (testado), mas o delete com ela não foi testado. Para garantir, guarde uma key sua, com escrita, como **Secret** do pod em `AUTO_OFF_API_KEY` (nunca no repo); ela tem prioridade. Sem key nenhuma, não existe auto-off. |
+| `AUTO_OFF_MIN=150` | Apaga o pod depois de N minutos (`0` desliga). Antes de agendar, valida a key com uma leitura e escreve o resultado no log. |
 | `MODELO`, `NUM_CTX`, `SECUNDARIO=1`, `W`, `LOGS` | Veja o cabeçalho do script. |
+
+### Nota do Hermes (testado em 17/10/2026)
+
+O Hermes Agent 0.19 **recusa iniciar** com menos de 64K de contexto:
+`Model qwen3:32b has a context window of 32,768 tokens, which is below the minimum 64,000`.
+O `qwen3:32b` tem janela nativa de 40.960 tokens no Ollama, então aumentar o
+`context_length` só o faria trabalhar além do contexto em que foi treinado. Para
+usar o Hermes, o modelo precisa ter janela nativa de 64K ou mais e suporte a
+ferramentas. Algumas tags que existem no Ollama e cabem na A40:
+`qwen3-coder:30b` (18,6 GB), `gpt-oss:20b` (13,8 GB) e `mistral-small3.2:24b` (15,2 GB).
+Confira a janela com `ollama show <modelo>` antes de pôr em `model.default` e
+`context_length` no `~/.hermes/config.yaml`.
 
 Acesso (do seu PC):
 
