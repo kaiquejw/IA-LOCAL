@@ -206,7 +206,16 @@ for f in "$REPO"/modelfiles/*.Modelfile; do
   sed -e "s|__MODELO_BASE__|${BASE}|g" \
       -e "s|__MODELO_REDTEAM__|${REDTEAM_BASE}|g" \
       -e "s|^PARAMETER num_ctx .*|PARAMETER num_ctx ${NUM_CTX}|" "$f" > "$out"
-  ollama create "$nome" -f "$out" >/dev/null && log "criado: $nome" || log "AVISO: falhou $nome"
+  # Modelfile com FROM fixo (o coder usa qwen3-coder:30b, não o base): baixa o
+  # modelo se ainda não estiver no volume. Já presente, não faz nada.
+  from="$(awk '/^FROM / {print $2; exit}' "$out")"
+  if [[ -n "$from" && "$from" != /* ]] \
+     && ! ollama list | awk -v m="$from" 'NR>1 && ($1==m || $1==m":latest") {f=1} END {exit !f}'; then
+    log "baixando $from (FROM de $nome) | disco antes: $(espaco)"
+    if ollama pull "$from"; then log "disco depois: $(espaco)"
+    else log "AVISO: falhou $nome (não baixou $from)"; continue; fi
+  fi
+  ollama create "$nome" -f "$out" >/dev/null && log "criado: $nome (FROM $from)" || log "AVISO: falhou $nome"
 done
 
 # ============================================================
