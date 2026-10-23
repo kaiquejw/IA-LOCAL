@@ -347,15 +347,16 @@ if [[ "${AIDER:-0}" == "1" ]]; then
 # Gerado pelo runpod-start.sh (só quando não existe; o seu fica intacto).
 # ollama_chat/ usa a API nativa do Ollama: o aider ajusta o num_ctx sozinho.
 model: ollama_chat/${AIDER_MODELO}
-editor-model: ollama_chat/${AIDER_MODELO}
+edit-format: whole        # arquivo inteiro: o que funcionou com o qwen3-coder local
 set-env:
   - OLLAMA_API_BASE=http://127.0.0.1:11434
 
-# Confirmação ANTES de gravar: no modo architect o modelo propõe a mudança e o
-# aider pergunta "Edit the files?". Sem isso, o aider aplica direto. Nunca use
-# yes-always.
-architect: true
-auto-accept-architect: false
+# Confirmação: o aider pergunta "Create new file?" antes de criar cada arquivo.
+# Edição em arquivo que já está no chat é aplicada direto (é assim que o aider
+# funciona); revise com git diff e descarte com git restore. Nunca use yes-always.
+# O modo architect (architect: true + auto-accept-architect: false) pergunta
+# antes de toda gravação, mas com este modelo só gravou o 1º arquivo de um
+# projeto de vários arquivos (testado em 23/10/2026). Por isso ficou de fora.
 
 # Nada de commit sem revisão: revise com git diff e descarte com git restore.
 auto-commits: false
@@ -378,7 +379,7 @@ log " PRONTO — base: ${BASE} | num_ctx ${NUM_CTX}"
 ollama list
 log " Chat no terminal:   ollama run tutor"
 [[ -n "$REDTEAM_BASE" ]] && log " Segurança:          ollama run redteam  (base ${REDTEAM_BASE})"
-[[ "${AIDER:-0}" == "1" ]] && log " aider:              cd <pasta-do-projeto> && aider   (pergunta antes de gravar; sem auto-commit)"
+[[ "${AIDER:-0}" == "1" ]] && log " aider:              cd <pasta-do-projeto> && aider   (pergunta antes de criar arquivo; sem auto-commit)"
 [[ "${HERMES:-0}" == "1" ]] && log " Hermes Agent:       hermes   (modelo ${HERMES_ALIAS}, ctx ${HERMES_CTX}; pede confirmação antes de comando perigoso)"
 log " No SEU PC (túnel):  ssh -N -L 3000:localhost:3000 -L 11434:localhost:11434 root@IP -p PORTA"
 log " Ao terminar:        Terminate no painel (ou espere o auto-off)"
