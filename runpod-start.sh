@@ -24,6 +24,7 @@
 #   REDTEAM=1          baixa um Qwen3 32B abliterated (~20 GB a mais) e cria o
 #                      modelo "redteam". MODELO_REDTEAM=... troca a tag.
 #   HERMES=1           instala e configura o Hermes Agent (não sobe sozinho)
+#   AIDER=1            instala e configura o aider (cria/edita arquivos no disco)
 #   MODELO=gemma3:27b  força o modelo base
 #   NUM_CTX=16384      força o contexto
 #   W=/root/ia         raiz de tudo (padrão /workspace). Use o disco do container
@@ -321,11 +322,63 @@ EOF
 fi
 
 # ============================================================
+# 8 — aider (opcional): agente que cria e edita os arquivos no disco.
+#     Só instala e configura; rode `aider` dentro da pasta do projeto.
+# ============================================================
+if [[ "${AIDER:-0}" == "1" ]]; then
+  AIDER_MODELO="${AIDER_MODELO:-qwen3-coder:30b}"
+  if ! ollama list | awk -v m="$AIDER_MODELO" 'NR>1 && $1==m {f=1} END {exit !f}'; then
+    log "aider: baixando $AIDER_MODELO | disco antes: $(espaco)"
+    if ollama pull "$AIDER_MODELO"; then log "disco depois: $(espaco)"
+    else log "AVISO: não baixou $AIDER_MODELO"; fi
+  fi
+  if [[ ! -x "$W/venv-aider/bin/aider" ]]; then
+    log "instalando aider em $W/venv-aider (só na primeira vez) | disco antes: $(espaco)"
+    python3 -m venv --system-site-packages "$W/venv-aider"
+    "$W/venv-aider/bin/pip" install -q aider-chat
+    log "disco depois: $(espaco)"
+  fi
+  ln -sf "$W/venv-aider/bin/aider" /usr/local/bin/aider
+  # Config no volume; ~/.aider.conf.yml aponta para ela (o aider lê da home,
+  # da raiz do git e da pasta atual, nessa ordem).
+  mkdir -p "$W/aider"
+  if [[ ! -f "$W/aider/aider.conf.yml" ]]; then
+    cat > "$W/aider/aider.conf.yml" <<EOF
+# Gerado pelo runpod-start.sh (só quando não existe; o seu fica intacto).
+# ollama_chat/ usa a API nativa do Ollama: o aider ajusta o num_ctx sozinho.
+model: ollama_chat/${AIDER_MODELO}
+editor-model: ollama_chat/${AIDER_MODELO}
+set-env:
+  - OLLAMA_API_BASE=http://127.0.0.1:11434
+
+# Confirmação ANTES de gravar: no modo architect o modelo propõe a mudança e o
+# aider pergunta "Edit the files?". Sem isso, o aider aplica direto. Nunca use
+# yes-always.
+architect: true
+auto-accept-architect: false
+
+# Nada de commit sem revisão: revise com git diff e descarte com git restore.
+auto-commits: false
+dirty-commits: false
+
+analytics: false
+check-update: false
+show-release-notes: false
+EOF
+    log "aider configurado: $W/aider/aider.conf.yml (modelo ${AIDER_MODELO})"
+  else
+    log "aider: config existente mantida ($W/aider/aider.conf.yml)"
+  fi
+  ln -sf "$W/aider/aider.conf.yml" "$HOME/.aider.conf.yml"
+fi
+
+# ============================================================
 log "================================================"
 log " PRONTO — base: ${BASE} | num_ctx ${NUM_CTX}"
 ollama list
 log " Chat no terminal:   ollama run tutor"
 [[ -n "$REDTEAM_BASE" ]] && log " Segurança:          ollama run redteam  (base ${REDTEAM_BASE})"
+[[ "${AIDER:-0}" == "1" ]] && log " aider:              cd <pasta-do-projeto> && aider   (pergunta antes de gravar; sem auto-commit)"
 [[ "${HERMES:-0}" == "1" ]] && log " Hermes Agent:       hermes   (modelo ${HERMES_ALIAS}, ctx ${HERMES_CTX}; pede confirmação antes de comando perigoso)"
 log " No SEU PC (túnel):  ssh -N -L 3000:localhost:3000 -L 11434:localhost:11434 root@IP -p PORTA"
 log " Ao terminar:        Terminate no painel (ou espere o auto-off)"
